@@ -1,56 +1,84 @@
 # Learning from Demonstration for Robotic Manipulation
 
-A Robot Learning project that learns a block-grasping motion from human video demonstrations and reproduces the learned behavior on a Panda robotic arm.
+> **ECEN 524 — Robot Learning, Project 2**  
+> Learning a reusable block-grasping trajectory from human video demonstrations and reproducing it on a Panda robotic arm.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/sdsharma1469/RobotLearning_project2/blob/main/ECEN524_Project2.ipynb)
 
-## Overview
+## Project Overview
 
-The project builds an end-to-end **Learning from Demonstration (LfD)** pipeline that converts human demonstrations into a reusable robot manipulation trajectory. The notebook processes demonstration videos, extracts hand motion and grasp state, aligns demonstrations in time, learns a representative motion, and generates a trajectory for robot execution.
+This project implements an end-to-end **Learning from Demonstration (LfD)** pipeline for robotic manipulation. Human block-grasping demonstrations are recorded on video, converted into hand trajectories and grasp states, aligned across demonstrations, modeled into a representative motion, and transformed into a smooth trajectory for robot execution.
 
-### Pipeline
+The pipeline combines computer vision with three core robot-learning techniques:
 
-1. **Human demonstration videos** — load recorded block-grasping demonstrations.
-2. **Hand tracking** — use MediaPipe and OpenCV to extract wrist landmarks and estimate open/closed grasp state from thumb-to-index distance.
-3. **Trajectory alignment** — use **Dynamic Time Warping (DTW)** to align demonstrations performed at different speeds.
-4. **Trajectory modeling** — use **Gaussian Mixture Regression (GMR)** to learn a representative motion from the aligned demonstrations.
-5. **Motion generation** — use **Dynamic Movement Primitives (DMPs)** to generate a smooth, reusable grasping trajectory.
-6. **Robot evaluation** — reproduce the learned motion with a Panda robotic arm and evaluate grasp completion.
+- **Dynamic Time Warping (DTW)** for temporal alignment
+- **Gaussian Mixture Regression (GMR)** for learning a representative trajectory
+- **Dynamic Movement Primitives (DMPs)** for smooth motion reproduction
+
+## Pipeline
+
+```mermaid
+flowchart LR
+    A[Human demonstration videos] --> B[OpenCV + MediaPipe hand tracking]
+    B --> C[Wrist trajectory + grasp state]
+    C --> D[DTW temporal alignment]
+    D --> E[GMR trajectory modeling]
+    E --> F[DMP motion generation]
+    F --> G[Panda robot execution]
+    G --> H[Grasp evaluation]
+```
+
+### 1. Demonstration Processing
+Human block-grasping demonstrations are processed frame by frame using **OpenCV** and **MediaPipe**. The active hand's wrist position is extracted to form the motion trajectory.
+
+The distance between the thumb tip and index-finger tip is also tracked. A smoothed hysteresis-based threshold converts this signal into an **OPEN / CLOSED** grasp state that can be synchronized with the learned trajectory.
+
+### 2. Temporal Alignment — DTW
+Different people perform the same grasp at different speeds. **Dynamic Time Warping** aligns the recorded demonstrations in time so corresponding portions of the motion can be compared and learned together.
+
+### 3. Trajectory Learning — GMR
+After alignment, **Gaussian Mixture Regression** is used to estimate a representative trajectory from the demonstrations rather than simply replaying one recorded motion.
+
+### 4. Motion Reproduction — DMP
+The learned trajectory is represented with **Dynamic Movement Primitives**, producing a smooth and reusable motion that can be executed by the robot.
+
+### 5. Robot Evaluation
+The generated trajectory is reproduced on a **Panda robotic arm** and evaluated based on whether the robot successfully completes the block grasp.
 
 ## Results
 
-- Processed **10 human demonstration videos** in the training pipeline.
-- Evaluated the learned behavior across **13 validation trials**.
-- Achieved **70% grasp completion** when reproducing the demonstrated block-grasping motion.
+| Metric | Result |
+| --- | ---: |
+| Human demonstrations processed | **10** |
+| Validation trials | **13** |
+| Grasp completion rate | **70%** |
 
-## Computer Vision Pipeline
-
-The notebook uses **MediaPipe Hand Landmarker** and **OpenCV** to process each demonstration frame. For the active hand, it records the wrist position and computes the distance between the thumb tip and index-finger tip. A smoothed, hysteresis-based threshold converts this signal into an `OPEN` / `CLOSED` grasp state that can be synchronized with the learned trajectory.
+The experiment shows that a manipulation behavior can be learned from multiple human demonstrations and transferred into a reusable robot trajectory, while also highlighting the sensitivity of grasp success to demonstration quality, trajectory estimation, and robot execution accuracy.
 
 ## Technologies
 
-**Python · OpenCV · MediaPipe · NumPy · pandas · Dynamic Time Warping · Gaussian Mixture Regression · Dynamic Movement Primitives**
+`Python` · `OpenCV` · `MediaPipe` · `NumPy` · `pandas` · `DTW` · `Gaussian Mixture Regression` · `Dynamic Movement Primitives`
 
 ## Repository Structure
 
 ```text
 RobotLearning_project2/
 ├── ECEN524_Project2.ipynb   # Complete Colab pipeline and experiments
-├── README.md
+├── README.md                # Project documentation
 └── .gitignore
 ```
 
-## Running the Project
+## Run the Project
 
-The easiest way to run the project is in **Google Colab** using the badge above.
+The notebook is designed to run in **Google Colab**.
 
-1. Open `ECEN524_Project2.ipynb` in Colab.
+1. Click the **Open in Colab** badge above.
 2. Mount Google Drive when prompted.
-3. Set `VIDEO_DIR` to the directory containing the human demonstration videos.
+3. Set `VIDEO_DIR` to the folder containing the demonstration videos.
 4. Run the notebook cells from top to bottom.
 
-The notebook installs the computer-vision dependencies it needs inside Colab.
+The notebook installs its required computer-vision dependencies within the Colab environment.
 
-## Course Project
+## Key Takeaway
 
-Developed as **ECEN 524 — Robot Learning, Project 2**.
+Rather than directly replaying a single demonstration, this project builds a complete **demonstration → perception → alignment → learning → robot execution** pipeline. The combination of DTW, GMR, and DMPs enables the robot to learn a generalized grasping motion from a collection of human examples.
