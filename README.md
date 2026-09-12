@@ -1,224 +1,157 @@
-# Learning from Demonstration for Robotic Manipulation
+# Learning Block-Placement Policies from Video Demonstrations
 
 > **ECEN 524 — Robot Learning, Project 2**
-> Learning a reusable block-grasping trajectory from human video demonstrations and reproducing it on a Panda robotic arm.
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/sdsharma1469/RobotLearning_project2/blob/main/ECEN524_Project2.ipynb)
+This project converts human block-manipulation videos into symbolic grab/release
+events, learns the demonstrated color-placement order, and solves a finite Markov
+Decision Process (MDP) to recover the optimal placement policy.
 
-## Project Overview
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/sdsharma1469/RobotLearning_project2/blob/main/ECEN524_Project2.ipynb)
 
-This project implements an end-to-end **Learning from Demonstration (LfD)** pipeline for robotic manipulation. Human block-grasping demonstrations are recorded on video, converted into hand trajectories and grasp states, aligned across demonstrations, modeled into a representative motion, and transformed into a smooth trajectory for robot execution.
+## What the project implements
 
-The pipeline combines computer vision with three core robot-learning techniques:
-
-- **Dynamic Time Warping (DTW)** for temporal alignment
-- **Gaussian Mixture Regression (GMR)** for learning a representative trajectory
-- **Dynamic Movement Primitives (DMPs)** for smooth motion reproduction
-
-The project is broken into three parts:
-
-- **Part A** — Trajectory learning pipeline (DTW → GMR → DMP → robot execution)
-- **Part B** — Object/hand recognition from video (grab/release event detection)
-- **Part C** — MDP formulation for learning the correct block-placement order
-
-## Pipeline
-
-```
-flowchart LR
-    A[Human demonstration videos] --> B[OpenCV + MediaPipe hand tracking]
-    B --> C[Wrist trajectory + grasp state]
-    C --> D[DTW temporal alignment]
-    D --> E[GMR trajectory modeling]
-    E --> F[DMP motion generation]
-    F --> G[Panda robot execution]
-    G --> H[Grasp evaluation]
+```text
+RGB demonstration videos
+        │
+        ├── MediaPipe Hand Landmarker ──> wrist/pinch landmarks ──> OPEN/CLOSED state
+        │
+        └── HSV color segmentation ─────> red/green/blue cube detections
+                                                │
+                               timestamp + nearest-object association
+                                                │
+                                      GRAB/RELEASE event log
+                                                │
+                                      demonstrated color order
+                                                │
+                                        MDP + value iteration
+                                                │
+                                      optimal placement policy
 ```
 
-### 1. Demonstration Processing
+The repository contains the perception and discrete-policy portions presented as
+Parts B and C of the supplied project report. It does **not** contain DTW, Gaussian
+Mixture Regression, Dynamic Movement Primitives, or Panda-arm execution code.
 
-Human block-grasping demonstrations are processed frame by frame using **OpenCV** and **MediaPipe**. The active hand's wrist position is extracted to form the motion trajectory.
+## Part B — Hand and object recognition
 
-The distance between the thumb tip and index-finger tip is also tracked. A smoothed hysteresis-based threshold converts this signal into an **OPEN / CLOSED** grasp state that can be synchronized with the learned trajectory.
+### Hand-state inference
 
-### 2. Temporal Alignment — DTW
+The notebook uses the MediaPipe Hand Landmarker to detect normalized 3D hand
+landmarks in each RGB frame. For the active hand, it records the wrist, thumb tip,
+and index-finger tip. The thumb–index distance is smoothed with a seven-frame rolling
+window and converted into `OPEN` or `CLOSED` using hysteresis thresholds derived from
+the 20th and 60th percentiles of the recording.
 
-Different people perform the same grasp at different speeds. **Dynamic Time Warping** aligns the recorded demonstrations in time so corresponding portions of the motion can be compared and learned together.
-
-### 3. Trajectory Learning — GMR
-
-After alignment, **Gaussian Mixture Regression** is used to estimate a representative trajectory from the demonstrations rather than simply replaying one recorded motion.
-
-### 4. Motion Reproduction — DMP
-
-The learned trajectory is represented with **Dynamic Movement Primitives**, producing a smooth and reusable motion that can be executed by the robot.
-
-### 5. Robot Evaluation
-
-The generated trajectory is reproduced on a **Panda robotic arm** and evaluated based on whether the robot successfully completes the block grasp.
-
-## Results (Part A)
-
-| Metric                         | Result  |
-| ------------------------------ | ------- |
-| Human demonstrations processed | **10**  |
-| Validation trials              | **13**  |
-| Grasp completion rate          | **70%** |
-
-The experiment shows that a manipulation behavior can be learned from multiple human demonstrations and transferred into a reusable robot trajectory, while also highlighting the sensitivity of grasp success to demonstration quality, trajectory estimation, and robot execution accuracy.
-
----
-
-## Part B — Object / Hand Recognition
-
-**Libraries used:** [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker)
-
-- Detects hands in RGB images and returns 3D keypoints for the hand and its parts.
-- Provides normalized landmark coordinates.
-- Hand-landmark outputs and cube-detection outputs are matched by timestamp, then passed to a script that builds a table of actions taken.
-
-To keep the model lightweight and fast, the higher-level actions **moving**, **holding**, and **releasing** are inferred purely from two hand states — **Open** and **Closed** — rather than asking the model to classify actions directly.
-
-Cube objects (red/green/blue) are localized in each frame using HSV color segmentation and contour-based blob detection, while the hand bounding box and key landmarks (wrist + fingertips) are drawn from the MediaPipe output.
-
-<table>
-<tr>
-<td align="center"><img src="images/hand_closed_grasp.png" width="380"><br><sub>CLOSED — grasping the red cube (frame 401)</sub></td>
-<td align="center"><img src="images/hand_open_release.png" width="380"><br><sub>OPEN — releasing after moving (frame 615)</sub></td>
-</tr>
-</table>
+Higher-level manipulation events are inferred from these compact hand states rather
+than training a separate action classifier.
 
 <p align="center">
-<img src="images/hand_cube_detection_overlay.png" width="600"><br>
-<sub>Hand bounding box + keypoints (MediaPipe) and HSV-based cube bounding boxes drawn on a sample frame</sub>
+  <img src="docs/images/hand-state-detection.png" width="620" alt="Closed and open hand-state detections from the report">
+  <br>
+  <sub>Detected CLOSED and OPEN states with tracked wrist locations (report frames 401 and 615).</sub>
 </p>
 
-### Example detected events
+### Colored-cube detection
 
-| Time (s) | Frame | Event   | Object   | Distance (px) |
-| -------- | ----- | ------- | -------- | -------------- |
-| 2.13     | 64    | GRAB    | RED_1    | 42.7           |
-| 3.05     | 92    | RELEASE | RED_1    | —              |
-| 4.22     | 127   | GRAB    | GREEN_2  | 35.3           |
-| 5.10     | 153   | RELEASE | GREEN_2  | —              |
-| 6.41     | 192   | GRAB    | BLUE_1   | 38.9           |
-| 7.32     | 219   | RELEASE | BLUE_1   | —              |
-| 8.75     | 262   | GRAB    | RED_2    | 40.1           |
-| 9.60     | 288   | RELEASE | RED_2    | —              |
-| 10.91    | 327   | GRAB    | GREEN_1  | 44.6           |
-| 11.85    | 355   | RELEASE | GREEN_1  | —              |
+Red, green, and blue cubes are segmented in HSV color space. Median filtering and
+morphological opening/closing reduce mask noise, contours below 800 pixels are
+discarded, and remaining objects are represented by bounding boxes and centroids.
+The nearest detected cube to the hand pinch point is associated with a grasp event.
 
-The notebook cell for this part (`grab middle frame of first video, detect hand + cubes, draw boxes`) loads the MediaPipe Hand Landmarker model, reads a representative frame, overlays the detected hand bounding box + keypoints, and overlays HSV-based bounding boxes for each colored cube for visual sanity-checking.
+<p align="center">
+  <img src="docs/images/hand-cube-detection.png" width="760" alt="MediaPipe hand and HSV cube detection overlay">
+  <br>
+  <sub>MediaPipe hand bounding box/keypoints combined with HSV-derived cube detections.</sub>
+</p>
 
----
+### Event log reported in the experiment
 
-## Part C — MDP for Block-Placement Order
+| Time (s) | Frame | Event | Object | Hand–object distance (px) |
+|---:|---:|:---|:---|---:|
+| 2.13 | 64 | GRAB | `RED_1` | 42.7 |
+| 3.05 | 92 | RELEASE | `RED_1` | — |
+| 4.22 | 127 | GRAB | `GREEN_2` | 35.3 |
+| 5.10 | 153 | RELEASE | `GREEN_2` | — |
+| 6.41 | 192 | GRAB | `BLUE_1` | 38.9 |
+| 7.32 | 219 | RELEASE | `BLUE_1` | — |
+| 8.75 | 262 | GRAB | `RED_2` | 40.1 |
+| 9.60 | 288 | RELEASE | `RED_2` | — |
+| 10.91 | 327 | GRAB | `GREEN_1` | 44.6 |
+| 11.85 | 355 | RELEASE | `GREEN_1` | — |
 
-### Description
+This produces the demonstrated release order:
 
-- **States:** `k` = number of correctly placed blocks so far (`0..N`)
-- **Actions:** next color to place — `{"R", "G", "B"}`
-- **Transition:** if `action == learned_seq[k]`, move to state `k+1`; otherwise stay at `k`
-- **Reward:** `+10` on reaching the goal state `N`, `+1` for each correct placement step, `-0.1` per-step penalty (with a `-0.5` penalty for an incorrect action)
-
-The target placement sequence is *learned automatically* from the `RELEASE` events recorded in Part B, then an MDP is built over that sequence and solved with **value iteration** to recover the optimal placement policy.
-
-### Results
-
-**Learned placement sequence (from RELEASE order):** `['R', 'G', 'B', 'R', 'G']`
-
-**Learned policy (state `k` → action):**
-
-| k | Action |
-|---|--------|
-| 0 | R |
-| 1 | G |
-| 2 | B |
-| 3 | R |
-| 4 | G |
-| 5 | R |
-
-**Rollout:**
-
-| step | k | action | reward | k_next |
-|------|---|--------|--------|--------|
-| 0 | 0 | R | 0.9 | 1 |
-| 1 | 1 | G | 0.9 | 2 |
-| 2 | 2 | B | 0.9 | 3 |
-| 3 | 3 | R | 0.9 | 4 |
-| 4 | 4 | G | 9.9 | 5 |
-
-**Final placed sequence according to policy:** `['R', 'G', 'B', 'R', 'G']`
-
-### MDP Diagram
-
-```
-===== MDP STATES =====
-s0: [∅]
-s1: [G]
-s2: [G R]
-s3: [G R B]
-s4: [G R B R]
-s5: GOAL STATE
-
-===== MDP TRANSITIONS =====
-From s0:
-  -- Place_G / +1 --> s1
-  -- Place_R / -1 --> s0
-  -- Place_B / -1 --> s0
-From s1:
-  -- Place_R / +1 --> s2
-  -- Place_G / -1 --> s1
-  -- Place_B / -1 --> s1
-From s2:
-  -- Place_B / +1 --> s3
-  -- Place_G / -1 --> s2
-  -- Place_R / -1 --> s2
-From s3:
-  -- Place_R / +1 --> s4
-  -- Place_G / -1 --> s3
-  -- Place_B / -1 --> s3
-From s4:
-  -- Place_G / +1 --> s5
-  -- Place_R / -1 --> s4
-  -- Place_B / -1 --> s4
-From s5: (terminal state)
-  -- any action --> s5 (reward = 0)
-
-===== OPTIMAL POLICY =====
-π*(s0) = Place_G
-π*(s1) = Place_R
-π*(s2) = Place_B
-π*(s3) = Place_R
-π*(s4) = Place_G
-π*(s5) = TERMINATE
+```text
+R → G → B → R → G
 ```
 
----
+## Part C — MDP and value iteration
+
+The event-derived sequence defines a deterministic finite MDP:
+
+- **State `k`:** number of correctly placed blocks, from `0` through `N`.
+- **Actions:** place a red (`R`), green (`G`), or blue (`B`) block.
+- **Correct transition:** advance from `k` to `k + 1`.
+- **Incorrect transition:** remain at `k` and receive a penalty.
+- **Goal:** reach terminal state `N` after completing the demonstrated sequence.
+- **Discount factor:** `γ = 0.95`.
+
+In the executable notebook, a correct non-terminal placement returns `0.9`
+(`+1 - 0.1` step cost), the goal transition returns `9.9`, and an incorrect action
+returns `-0.5`. Value iteration uses at most 200 iterations and a convergence
+tolerance of `1e-8`.
+
+### Learned policy and rollout
+
+| State | Correct action | Reward | Next state |
+|---:|:---:|---:|---:|
+| 0 | R | 0.9 | 1 |
+| 1 | G | 0.9 | 2 |
+| 2 | B | 0.9 | 3 |
+| 3 | R | 0.9 | 4 |
+| 4 | G | 9.9 | 5 |
+| 5 | TERMINATE | 0.0 | 5 |
+
+The rollout reaches the goal in five decisions with no incorrect placement.
+
+> **Report consistency note:** the report's final text diagram uses an illustrative
+> hard-coded sequence `G → R → B → R → G`, while the event table and executed
+> value-iteration output produce `R → G → B → R → G`. This README reports the
+> data-derived, executed result.
 
 ## Technologies
 
-`Python` · `OpenCV` · `MediaPipe` · `NumPy` · `pandas` · `DTW` · `Gaussian Mixture Regression` · `Dynamic Movement Primitives` · `Value Iteration / MDP`
+`Python` · `OpenCV` · `MediaPipe` · `NumPy` · `pandas` · `Matplotlib` · `Value Iteration`
 
-## Repository Structure
+## Repository structure
 
-```
+```text
 RobotLearning_project2/
-├── ECEN524_Project2.ipynb   # Complete Colab pipeline and experiments
-├── README.md                # Project documentation
-└── .gitignore
+├── ECEN524_Project2.ipynb
+├── README.md
+└── docs/
+    └── images/
+        ├── hand-cube-detection.png
+        └── hand-state-detection.png
 ```
 
-## Run the Project
+## Running the notebook
 
-The notebook is designed to run in **Google Colab**.
+The notebook is designed for Google Colab:
 
-1. Click the **Open in Colab** badge above.
-2. Mount Google Drive when prompted.
-3. Set `VIDEO_DIR` to the folder containing the demonstration videos.
-4. Run the notebook cells from top to bottom.
+1. Open it using the badge above.
+2. Mount Google Drive.
+3. Set `VIDEO_DIR` to a directory containing the demonstration videos.
+4. Run the cells in order.
+5. Supply the generated/curated `events.csv` before running the MDP cells.
 
-The notebook installs its required computer-vision dependencies within the Colab environment.
+The notebook installs MediaPipe, OpenCV, and pandas in the Colab environment and
+downloads the MediaPipe Hand Landmarker model when needed.
 
-## Key Takeaway
+## Limitations
 
-Rather than directly replaying a single demonstration, this project builds a complete **demonstration → perception → alignment → learning → robot execution** pipeline. Hand/object recognition (Part B) extracts symbolic grab/release events from raw video, and an MDP formulation (Part C) turns those events into a verified optimal placement policy — complementing the continuous-motion learning done via DTW, GMR, and DMPs in Part A.
+- HSV thresholds may require retuning when lighting or camera conditions change.
+- Centroid-based object association can be confused by occlusion or nearby objects.
+- The MDP assumes deterministic transitions and an already extracted target order.
+- The provided notebook depends on external demonstration videos and `events.csv`,
+  which are not committed to this repository.
